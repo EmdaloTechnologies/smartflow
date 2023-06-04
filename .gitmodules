@@ -1,3 +1,6 @@
 [submodule "firmware/src/azure_rtos"]
 	path = firmware/src/azure_rtos
 	url = https://github.com/Microchip-MPLAB-Harmony/azure_rtos.git
+[submodule "firmware/src/embedded-wireless-framework"]
+	path = firmware/src/embedded-wireless-framework
+	url = https://github.com/Azure/embedded-wireless-framework.git
