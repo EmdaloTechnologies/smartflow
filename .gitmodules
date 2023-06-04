@@ -1,0 +1,3 @@
+[submodule "firmware/src/azure_rtos"]
+	path = firmware/src/azure_rtos
+	url = https://github.com/Microchip-MPLAB-Harmony/azure_rtos.git
