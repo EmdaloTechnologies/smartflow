@@ -1,0 +1,82 @@
+{
+    "metaDataVersion": "1.0.0",
+    "category": "com.microchip.ide.project",
+    "content": {
+        "metaDataVersion": "1.0.0",
+        "name": "com.microchip.mcu32.mplabx.project.azure_rtos_azure_iot_simtel_sam_d51",
+        "version": "1.0.0",
+        "displayName": "Azure IoT Example for WINC1500 using SAM D5x/E5x Family",
+        "projectName": "azure_iot_demo_wifi",
+        "shortDescription": "The Azure IoT Example configuration demonstrates creating a Azure IoT application with the MPLAB Harmony.",
+        "ide": {
+            "name": "MPLABX",
+            "semverRange": ">=5.45.0"
+        },
+        "compiler": [
+            {
+                "name": "XC32",
+                "semverRange": ">=2.50.0"
+            }
+        ],
+        "dfp": {
+            "name": "SAMD51_DFP",
+            "semverRange": "^3.5.87"
+        },
+        "configurator": {
+            "name": "MHC",
+            "semverRange": ">=3.8.0"
+        },
+        "device": {
+            "metaDataVersion": "1.0.0",
+            "category": "com.microchip.portal.contentRef",
+            "content": {
+                "metaDataVersion": "1.0.0",
+                "category": "com.microchip.device",
+                "name": "ATWINC1500",
+                "versionRange": "*"
+            }
+        },
+        "author": "Microchip",
+        "subcategories": [
+            [
+                "Development Kit", "SAM D51 SmartFlow Board"
+            ],
+            [
+                "Harmony", "Azure", "Azure IoT", "Azure IoT Example"
+            ],
+            [
+                "Azure", "Azure IoT", "Azure IoT Example"
+            ]
+        ],
+        "peripherals": [
+            "SPI",
+            "EIC"
+        ],
+        "keywords": [
+            "MHC",
+            "Harmony",
+            "Azure",
+            "NetX Duo",
+            "Azure IoT",
+            "Azure IoT Example",
+            "ATSAMD51J20A",
+            "SAM D5x/E5x Family",
+            "ATWINC1500-XPRO",
+			"WINC15x0",
+			"Wireless",
+			"Wi-Fi",
+			"WiFi"
+        ],
+        "additionalData": {
+            "longDescription": {
+                "metaDataVersion": "1.0.0",
+                "category": "com.microchip.portal.fileRef",
+                "content": {
+                    "metaDataVersion": "1.0.0",
+                    "fileName": "./../../readme.md",
+                    "mimeType": "text/markdown"
+                }
+            }
+        }
+    }
+}
