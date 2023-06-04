@@ -1,0 +1,948 @@
+diff --git a/src/ewf_adapter_api_modem_sim_utility.c b/src/ewf_adapter_api_modem_sim_utility.c
+index c3dc671..982de26 100644
+--- a/src/ewf_adapter_api_modem_sim_utility.c
++++ b/src/ewf_adapter_api_modem_sim_utility.c
+@@ -18,20 +18,44 @@ ewf_result ewf_adapter_modem_sim_pin_enter(ewf_adapter* adapter_ptr, const char*
+ 	ewf_result result;
+ 	uint8_t* response;
+ 	bool equal;
++    bool busy;
++    
++    /* TODO - Move */
++    while (1) {
++    //if (ewf_result_failed(result = ewf_interface_get_response(interface_ptr, "\r\nRDY\r\n"))) asm("bkpt"); //return result;
++	if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT+CFUN?\r"))) asm("bkpt"); //return result;
++	if (ewf_result_failed(result = ewf_interface_get_response(interface_ptr, &response))) asm("bkpt"); //return result;
++	equal = ewfl_str_equals_str((char*)response, "\r\n+CFUN: 1\r\n\r\nOK\r\n");
++	ewf_interface_release(interface_ptr, response);
++    if (equal)
++        break;
++    }
+ 
+ 	/* Set SIM PIN*/
+-	if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT+CPIN?\r"))) return result;
+-	if (ewf_result_failed(result = ewf_interface_get_response(interface_ptr, &response))) return result;
+-
++    try_again:
++	if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT+CPIN?\r"))) asm("bkpt"); //return result;
++	if (ewf_result_failed(result = ewf_interface_get_response(interface_ptr, &response))) asm("bkpt"); //return result;
++    busy = ewfl_str_equals_str((char*)response, "\r\n+CME ERROR: 14\r\n");
++    if (busy) {
++        ewf_interface_release(interface_ptr, response);
++        goto try_again;
++    }
++    
+ 	equal = ewfl_str_equals_str((char*)response, "\r\n+CPIN: READY\r\n\r\nOK\r\n");
++    if (!equal) {
++        equal = ewfl_str_equals_str((char *)response, "+CPIN: READY\r\n\r\n+CPIN: READY\r\n\r\nOK\r\n");
++    }
++    if (!equal) {
++        equal = ewfl_str_equals_str((char *)response, "\r\n+CPIN: READY\r\n\r\n+CPIN: READY\r\n\r\nOK\r\n");
++    }
+ 	ewf_interface_release(interface_ptr, response);
+ 
+ 	if (!equal)
+ 	{
+ 		/* SIM not ready, attempt to enter the PIN */
+-
+-		if (ewf_result_failed(result = ewf_interface_send_commands(interface_ptr, "AT+CPIN=", (param ? param : "0000" /* try a common default value */), "\r", NULL))) return result;
+-		if (ewf_result_failed(result = ewf_interface_verify_response(interface_ptr, "\r\nOK\r\n"))) return result;
++        asm("bkpt");
++		if (ewf_result_failed(result = ewf_interface_send_commands(interface_ptr, "AT+CPIN=", (param ? param : "0000" /* try a common default value */), "\r", NULL))) asm("bkpt"); //return result;
++		if (ewf_result_failed(result = ewf_interface_verify_response(interface_ptr, "\r\nOK\r\n"))) asm("bkpt"); //return result;
+ 	}
+ 
+ 	return EWF_RESULT_OK;
+diff --git a/src/ewf_adapter_simcom_common.c b/src/ewf_adapter_simcom_common.c
+index 7e469ea..26f2a4c 100644
+--- a/src/ewf_adapter_simcom_common.c
++++ b/src/ewf_adapter_simcom_common.c
+@@ -5,3 +5,12 @@
+  * SPDX-License-Identifier: MIT
+  * @brief The Embedded Wireless Framework SIMCom common adapter API
+  ****************************************************************************/
++//#include "ewf_adapter_simcom_common_tokenizer.c"
++#include "ewf_adapter_simcom_common_control.c"
++#include "ewf_adapter_simcom_common_urc.c"
++#include "ewf_adapter_simcom_common_info.c"
++//#include "ewf_adapter_simcom_common_context.c"
++#include "ewf_adapter_simcom_common_ufs.c"
++#include "ewf_adapter_simcom_common_tls_basic.c"
++#include "ewf_adapter_simcom_common_mqtt_basic.c"
++#include "ewf_adapter_simcom_common_internet.c"
+diff --git a/src/ewf_adapter_simcom_common.h b/src/ewf_adapter_simcom_common.h
+index 4187e18..2e2ec81 100644
+--- a/src/ewf_adapter_simcom_common.h
++++ b/src/ewf_adapter_simcom_common.h
+@@ -3,7 +3,7 @@
+  * @version Preview
+  * @copyright Copyright (c) Microsoft Corporation. All rights reserved.
+  * SPDX-License-Identifier: MIT
+- * @brief The Embedded Wireless Framework SIMCom common adapter API
++ * @brief The Embedded Wireless Framework generic Simcom adapter functionality
+  ****************************************************************************/
+ 
+ #ifndef __ewf_adapter_simcom_common__h__included__
+@@ -16,32 +16,282 @@ extern "C" {
+ #endif
+ 
+ /************************************************************************//**
+- * @defgroup group_adapter_simcom_common SIMCom generic adapter functions
++ * @defgroup group_configuration_adapter_simcom_common Simcom common configuration
++ * @ingroup group_configuration
++ * @brief Simcom common adapter configuration
++ * @{
++ ****************************************************************************/
++
++#ifndef EWF_ADAPTER_SIMCOM_COMMON_DEFAULT_TIMEOUT
++#define EWF_ADAPTER_SIMCOM_COMMON_DEFAULT_TIMEOUT (EWF_PLATFORM_TICKS_PER_SECOND * 10)
++#endif
++
++#ifndef EWF_ADAPTER_SIMCOM_COMMON_UFS_ENABLED
++#define EWF_ADAPTER_SIMCOM_COMMON_UFS_ENABLED (1)
++#endif
++
++#if !defined(EWF_ADAPTER_SIMCOM_COMMON_TLS_ENABLED) && !defined(EWF_ADAPTER_SIMCOM_COMMON_TLS_BASIC_ENABLED)
++#if 1
++#define EWF_ADAPTER_SIMCOM_COMMON_TLS_BASIC_ENABLED (1)
++#define EWF_ADAPTER_SIMCOM_COMMON_TLS_ENABLED (0)
++#else
++#define EWF_ADAPTER_SIMCOM_COMMON_TLS_BASIC_ENABLED (0)
++#define EWF_ADAPTER_SIMCOM_COMMON_TLS_ENABLED (1)
++#endif
++#endif
++
++#ifndef EWF_ADAPTER_SIMCOM_COMMON_TCP_ENABLED
++#define EWF_ADAPTER_SIMCOM_COMMON_TCP_ENABLED (1)
++#endif
++
++#ifndef EWF_ADAPTER_SIMCOM_COMMON_UDP_ENABLED
++#define EWF_ADAPTER_SIMCOM_COMMON_UDP_ENABLED (1)
++#endif
++
++#if !defined(EWF_ADAPTER_SIMCOM_COMMON_MQTT_ENABLED) && !defined(EWF_ADAPTER_SIMCOM_COMMON_MQTT_BASIC_ENABLED)
++#if 1
++#define EWF_ADAPTER_SIMCOM_COMMON_MQTT_BASIC_ENABLED (1)
++#define EWF_ADAPTER_SIMCOM_COMMON_MQTT_ENABLED (0)
++#else
++#define EWF_ADAPTER_SIMCOM_COMMON_MQTT_BASIC_ENABLED (0)
++#define EWF_ADAPTER_SIMCOM_COMMON_MQTT_ENABLED (1)
++#endif
++#endif
++
++#ifndef EWF_ADAPTER_SIMCOM_COMMON_INTERNET_SOCKET_POOL_SIZE
++/** @brief The total number of supported internet sockets in the adapter */
++#define EWF_ADAPTER_SIMCOM_COMMON_INTERNET_SOCKET_POOL_SIZE (12)
++#endif
++
++#ifndef EWF_ADAPTER_SIMCOM_COMMON_INTERNET_SOCKET_INVALID
++/** @brief The internet socket invalid value */
++#define EWF_ADAPTER_SIMCOM_COMMON_INTERNET_SOCKET_INVALID (-1)
++#endif
++
++#ifndef EWF_ADAPTER_SIMCOM_COMMON_MQTT_SOCKET_POOL_SIZE
++/** @brief The total number of supported MQTT sockets in the adapter */
++#define EWF_ADAPTER_SIMCOM_COMMON_MQTT_SOCKET_POOL_SIZE (12)
++#endif
++
++#ifndef EWF_ADAPTER_SIMCOM_COMMON_MQTT_SOCKET_INVALID
++/** @brief The MQTT socket invalid value */
++#define EWF_ADAPTER_SIMCOM_COMMON_MQTT_SOCKET_INVALID (-1)
++#endif
++
++/** @brief Trusted Certificate Authority certificate file name to be stored on the modem */
++#ifndef EWF_CONFIG_ADAPTER_SIMCOM_COMMON_ROOT_CA_CERTIFICATE_FILE_NAME
++#define EWF_CONFIG_ADAPTER_SIMCOM_COMMON_ROOT_CA_CERTIFICATE_FILE_NAME      ("root_ca_cert.pem")
++#endif
++
++/** @brief User Certificate Authority certificate file name to be stored on the modem */
++#ifndef EWF_CONFIG_ADAPTER_SIMCOM_COMMON_USER_CA_CERTIFICATE_FILE_NAME
++#define EWF_CONFIG_ADAPTER_SIMCOM_COMMON_USER_CA_CERTIFICATE_FILE_NAME      ("ca_cert.pem")
++#endif
++
++/**
++ * @brief CA certificate index that will be used in the security/TLS profile
++ * configuration. This number will either be
++ * EWF_CONFIG_ADAPTER_SIMCOM_COMMON_ROOT_CA_CERTIFICATE_FILE_NAME or
++ * EWF_CONFIG_ADAPTER_SIMCOM_COMMON_USER_CA_CERTIFICATE_FILE_NAME
++ * Default to Root CA.
++ */
++#ifndef EWF_CONFIG_ADAPTER_SIMCOM_COMMON_CA_CERTIFICATE_FILE_NAME
++#define EWF_CONFIG_ADAPTER_SIMCOM_COMMON_CA_CERTIFICATE_FILE_NAME           ("root_ca_cert.pem")
++#endif
++
++/** @brief Client certificate file name to be stored on the modem */
++#ifndef EWF_CONFIG_ADAPTER_SIMCOM_COMMON_CLIENT_CERTIFICATE_FILE_NAME
++#define EWF_CONFIG_ADAPTER_SIMCOM_COMMON_CLIENT_CERTIFICATE_FILE_NAME       ("device_cert.pem")
++#endif
++
++/** @brief Client private key filename  */
++#ifndef EWF_CONFIG_ADAPTER_SIMCOM_COMMON_CLIENT_PRIVATE_KEY_FILE_NAME
++#define EWF_CONFIG_ADAPTER_SIMCOM_COMMON_CLIENT_PRIVATE_KEY_FILE_NAME       ("device_key.pem")
++#endif
++
++/** @brief Trusted Certificate Authority certificate pointer name*/
++#ifndef EWF_CONFIG_ADAPTER_SIMCOM_COMMON_ROOT_CA_CERTIFICATE_BUFFER_NAME
++#define EWF_CONFIG_ADAPTER_SIMCOM_COMMON_ROOT_CA_CERTIFICATE_BUFFER_NAME    (root_ca_cert_pem)
++#endif
++
++/************************************************************************//**
++ * @} *** group_configuration_adapter_simcom_common
++ ****************************************************************************/
++
++/************************************************************************//**
++ * @defgroup group_adapter_simcom_common Simcom common driver implementation
+  * @ingroup group_adapter
++ * @brief Simcom common adapter implementation
+  * @{
+  ****************************************************************************/
+ 
++/************************************************************************//**
++ * @defgroup group_adapter_simcom_common_tokenizer Simcom common driver tokenizer
++ * @brief Simcom common adapter tokenizer
++ * @{
++ ****************************************************************************/
++
++extern ewf_interface_tokenizer_pattern* ewf_adapter_simcom_common_message_tokenizer_pattern_ptr;
++//extern ewf_interface_tokenizer_pattern* ewf_adapter_simcom_common_command_response_end_tokenizer_pattern_ptr;
++extern ewf_interface_tokenizer_pattern* ewf_adapter_simcom_common_command_response_tokenizer_pattern_ptr;
++//extern ewf_interface_tokenizer_pattern* ewf_adapter_simcom_common_urc_tokenizer_pattern_ptr;
+ 
+ /************************************************************************//**
+- * @defgroup group_adapter_simcom_common_data SIMCom common driver internal data
+- * @brief SIMCom common adapter data structure
++ * @} *** group_adapter_simcom_common_tokenizer
++ ****************************************************************************/
++
++/************************************************************************//**
++ * @defgroup group_adapter_simcom_common_data Simcom common driver internal data
++ * @brief Simcom common adapter data structure
+  * @{
+  ****************************************************************************/
+ 
+-/** @brief The SIMCom common adapter data structure */
++/** @brief The socket service type  */
++typedef enum _ewf_adapter_common_internet_socket_service_type
++{
++    ewf_adapter_simcom_common_internet_socket_service_type_not_initialized,
++    ewf_adapter_simcom_common_internet_socket_service_type_tcp,
++    ewf_adapter_simcom_common_internet_socket_service_type_udp,
++    ewf_adapter_simcom_common_internet_socket_service_type_tcp_listener,
++    ewf_adapter_simcom_common_internet_socket_service_type_udp_listener,
++
++} ewf_adapter_simcom_common_internet_socket_service_type;
++
++/** @brief Internal structure for internet socket status  */
++typedef struct _ewf_adapter_simcom_common_internet_socket
++{
++    void* socket_ptr;
++    uint32_t id;
++    uint16_t local_port;
++    ewf_adapter_simcom_common_internet_socket_service_type type;
++    volatile bool used : 1;
++    volatile bool open : 1;
++    volatile bool open_error : 1;
++    volatile bool conn : 1;
++    volatile bool conn_error : 1;
++
++} ewf_adapter_simcom_common_internet_socket;
++
++/** @brief Internal structure for MQTT socket status  */
++typedef struct _ewf_adapter_simcom_common_mqtt_socket
++{
++    volatile bool open : 1;
++    volatile bool open_error : 1;
++    volatile bool conn : 1;
++    volatile bool conn_error : 1;
++
++} ewf_adapter_simcom_common_mqtt_socket;
++
++/** @brief The Simcom common adapter data structure */
+ typedef struct _ewf_adapter_simcom_common
+ {
+-    uint8_t dummy;
+-    
++    uint32_t default_timeout;
++
++#if EWF_ADAPTER_SIMCOM_COMMON_TCP_ENABLED || EWF_ADAPTER_SIMCOM_COMMON_UDP_ENABLED
++    /**< The internal pool of internet sockets */
++    ewf_adapter_simcom_common_internet_socket internet_socket_pool[EWF_ADAPTER_SIMCOM_COMMON_INTERNET_SOCKET_POOL_SIZE];
++#endif
++
++#if EWF_ADAPTER_SIMCOM_COMMON_MQTT_BASIC_ENABLED
++    /** @brief Internal MQTT basic API socket 0 status  */
++    volatile bool mqtt_basic_open;
++    volatile bool mqtt_basic_open_error;
++    volatile bool mqtt_basic_conn;
++    volatile bool mqtt_basic_conn_error;
++    volatile bool mqtt_basic_publish;
++    volatile bool mqtt_basic_subscribe;
++#endif /* EWF_ADAPTER_SIMCOM_COMMON_MQTT_BASIC_ENABLED */
++
++#if EWF_ADAPTER_SIMCOM_COMMON_MQTT_ENABLED
++    /**< The internal pool of MQTT sockets */
++    ewf_adapter_simcom_common_mqtt_socket mqtt_socket_pool[EWF_ADAPTER_SIMCOM_COMMON_MQTT_SOCKET_POOL_SIZE];
++
++    /**< The MQTT message callback */
++    ewf_adapter_mqtt_message_callback mqtt_message_callback;
++#endif /* EWF_ADAPTER_SIMCOM_COMMON_MQTT_ENABLED */
++
+ } ewf_adapter_simcom_common;
+ 
+ /************************************************************************//**
+  * @} *** group_adapter_simcom_common_data
+  ****************************************************************************/
+ 
++/************************************************************************//**
++ * @defgroup group_adapter_simcom_common_functions Simcom generic adapter functions
++ * @brief Simcom generic adapter functions
++ * @{
++ ****************************************************************************/
++
++/**
++ * @defgroup group_adapter_simcom_common_context Context activation, deactivation and configuration
++ * @brief Simcom common adapter driver context API
++ * @{
++ */
++
++/**
++  * @brief Activate a context
++  * @return #ewf_result success and error conditions
++  */
++ewf_result ewf_adapter_simcom_common_context_activate(ewf_adapter* adapter_ptr, uint32_t ctx);
++
++/**
++ * @brief Deactivate a context
++ * @return #ewf_result success and error conditions
++ */
++ewf_result ewf_adapter_simcom_common_context_deactivate(ewf_adapter* adapter_ptr, uint32_t ctx);
++
++/**
++ * @brief Configure a context
++ * @return #ewf_result success and error conditions
++ */
++ewf_result ewf_adapter_simcom_common_context_configure(ewf_adapter* adapter_ptr, uint32_t ctx, uint32_t type, const char* apn, const char* username, const char* password, uint32_t authentication);
++
++/**
++ * @brief Configure a context DNS
++ * @return #ewf_result success and error conditions
++ */
++ewf_result ewf_adapter_simcom_common_context_configure_dns(ewf_adapter* adapter_ptr, uint32_t ctx, const char* primary_dns, const char* secondary_dns);
++
++/** @} *** group_adapter_simcom_common_context */
++
++/**
++ * @defgroup group_adapter_simcom_common_ufs User File System (UFS) API
++ * @brief Functions to use the modem's User File System (UFS)
++ * @{
++ */
++
++ewf_result ewf_adapter_simcom_common_ufs_start(ewf_adapter* adapter_ptr);
++ewf_result ewf_adapter_simcom_common_ufs_stop(ewf_adapter* adapter_ptr);
++
++ewf_result ewf_adapter_simcom_common_ufs_urc_callback(ewf_interface* interface_ptr, uint8_t* buffer_ptr, uint32_t buffer_length);
++
++ /**
++  * @brief List the files in the user file system
++  * @return #ewf_result status code
++  */
++ewf_result ewf_adapter_simcom_common_ufs_list(ewf_adapter* adapter_ptr);
++
++/**
++ * @brief Delete a file from the user file system
++ * @param filename_str the file name of the file to be deleted.
++ * @return #ewf_result status code
++ */
++ewf_result ewf_adapter_simcom_common_ufs_delete(ewf_adapter* adapter_ptr, const char* filename_str);
++
++/**
++ * @brief Upload a file to the user file system.
++ * @param filename_str the file name where the data will be uploaded.
++ * @param buffer_ptr a pointer to a buffer with data to upload to the file system.
++ * @param buffer_length the size of the data pointed by the buffer.
++ * @return #ewf_result status code
++ */
++ewf_result ewf_adapter_simcom_common_ufs_upload(ewf_adapter* adapter_ptr, const char* filename_str, const uint8_t* buffer_ptr, uint32_t buffer_length);
++
++/** @} *** group_adapter_simcom_common_ufs */
++
+ /**
+  * @defgroup group_adapter_simcom_common_control Adapter control
+- * @brief SIMCom adapter control API
++ * @brief Simcom common adapter control API
+  * @{
+  */
+ 
+@@ -54,7 +304,7 @@ ewf_result ewf_adapter_simcom_common_stop(ewf_adapter* adapter_ptr);
+ 
+ /**
+  * @defgroup group_adapter_simcom_common_info Adapter information
+- * @brief SIMCom adapter driver info API
++ * @brief Simcom common adapter driver info API
+  * @{
+  */
+ 
+@@ -70,7 +320,7 @@ ewf_result ewf_adapter_simcom_common_get_ipv4_dns(ewf_adapter* adapter_ptr, uint
+ 
+ /**
+  * @defgroup group_adapter_simcom_common_urc URC handling
+- * @brief SIMCom adapter driver URC handling
++ * @brief Simcom common adapter driver URC handling
+  * @{
+  */
+ 
+@@ -78,6 +328,125 @@ ewf_result ewf_adapter_simcom_common_urc_callback(ewf_interface* interface_ptr,
+ 
+ /** @} *** group_adapter_simcom_common_urc */
+ 
++/**
++ * @defgroup group_adapter_simcom_common_internet Common internet functions (TCP+UDP)
++ * @brief Functions common to TCP and UDP in the Simcom common internet implementation
++ * @{
++ */
++
++#if EWF_ADAPTER_SIMCOM_COMMON_TCP_ENABLED || EWF_ADAPTER_SIMCOM_COMMON_UDP_ENABLED
++
++ewf_result ewf_adapter_simcom_common_internet_start(ewf_adapter* adapter_ptr);
++ewf_result ewf_adapter_simcom_common_internet_stop(ewf_adapter* adapter_ptr);
++
++ewf_result ewf_adapter_simcom_common_internet_urc_callback(ewf_interface* interface_ptr, uint8_t* buffer_ptr, uint32_t buffer_length);
++
++#endif /* EWF_ADAPTER_SIMCOM_COMMON_TCP_ENABLED || EWF_ADAPTER_SIMCOM_COMMON_UDP_ENABLED */
++
++/** @} *** group_adapter_simcom_common_internet */
++
++/**
++ * @defgroup group_adapter_simcom_common_tcp TCP API implementation
++ * @brief Simcom common adapter TCP API
++ * @{
++ */
++
++#if EWF_ADAPTER_SIMCOM_COMMON_TCP_ENABLED
++
++extern ewf_adapter_api_tcp ewf_adapter_simcom_common_api_tcp;
++
++ewf_result ewf_adapter_simcom_common_tcp_open(ewf_adapter* adapter_ptr, ewf_socket_tcp* socket_ptr);
++ewf_result ewf_adapter_simcom_common_tcp_close(ewf_socket_tcp* socket_ptr);
++ewf_result ewf_adapter_simcom_common_tcp_control(ewf_socket_tcp* socket_ptr, const char* control_str, const uint8_t* buffer_ptr, uint32_t* buffer_length_ptr);
++ewf_result ewf_adapter_simcom_common_tcp_set_tls_configuration(ewf_socket_tcp* socket_ptr, uint32_t tls_configuration_id);
++ewf_result ewf_adapter_simcom_common_tcp_bind(ewf_socket_tcp* socket_ptr, uint32_t local_port);
++ewf_result ewf_adapter_simcom_common_tcp_listen(ewf_socket_tcp* socket_ptr);
++ewf_result ewf_adapter_simcom_common_tcp_accept(ewf_socket_tcp* socket_ptr, ewf_socket_tcp* socket_new_ptr);
++ewf_result ewf_adapter_simcom_common_tcp_connect(ewf_socket_tcp* socket_ptr, const char* const server, uint32_t port);
++ewf_result ewf_adapter_simcom_common_tcp_shutdown(ewf_socket_tcp* socket_ptr);
++ewf_result ewf_adapter_simcom_common_tcp_send(ewf_socket_tcp* socket_ptr, const uint8_t* buffer_ptr, uint32_t buffer_length);
++ewf_result ewf_adapter_simcom_common_tcp_receive(ewf_socket_tcp* socket_ptr, uint8_t* buffer_ptr, uint32_t* buffer_length, bool wait);
++
++#endif /* EWF_ADAPTER_SIMCOM_COMMON_TCP_ENABLED */
++
++/** @} *** group_adapter_simcom_common_tcp */
++
++/**
++ * @defgroup group_adapter_simcom_common_udp UDP API implementation
++ * @brief Simcom common adapter UDP API
++ * @{
++ */
++
++#if EWF_ADAPTER_SIMCOM_COMMON_UDP_ENABLED
++
++extern ewf_adapter_api_udp ewf_adapter_simcom_common_api_udp;
++
++ewf_result ewf_adapter_simcom_common_udp_open(ewf_adapter* adapter_ptr, ewf_socket_udp* socket_ptr);
++ewf_result ewf_adapter_simcom_common_udp_close(ewf_socket_udp* socket_ptr);
++ewf_result ewf_adapter_simcom_common_udp_control(ewf_socket_udp* socket_ptr, const char* control_str, const uint8_t* buffer_ptr, uint32_t* buffer_length_ptr);
++ewf_result ewf_adapter_simcom_common_udp_set_dtls_configuration(ewf_socket_udp* socket_ptr, uint32_t dtls_configuration_id);
++ewf_result ewf_adapter_simcom_common_udp_bind(ewf_socket_udp* socket_ptr, uint32_t port);
++ewf_result ewf_adapter_simcom_common_udp_shutdown(ewf_socket_udp* socket_ptr);
++ewf_result ewf_adapter_simcom_common_udp_send_to(ewf_socket_udp* socket_ptr, const char* remote_address_str, uint32_t remote_port, const uint8_t* buffer_ptr, uint32_t buffer_length);
++ewf_result ewf_adapter_simcom_common_udp_receive_from(ewf_socket_udp* socket_ptr, char* remote_address, uint32_t* remote_address_length_ptr, uint32_t* remote_port_ptr, uint8_t* buffer_ptr, uint32_t* buffer_length_ptr, bool wait);
++
++#endif /* EWF_ADAPTER_SIMCOM_COMMON_UDP_ENABLED */
++
++/** @} *** group_adapter_simcom_common_udp */
++
++/**
++ * @defgroup group_adapter_simcom_common_tls_basic The Simcom common adapter TLS basic API
++ * @brief The Simcom common adapter TLS basic API
++ * @{
++ */
++
++#if EWF_ADAPTER_SIMCOM_COMMON_TLS_BASIC_ENABLED
++
++extern ewf_adapter_api_tls_basic ewf_adapter_simcom_common_api_tls_basic;
++
++ewf_result ewf_adapter_simcom_common_tls_basic_start(ewf_adapter* adapter_ptr);
++ewf_result ewf_adapter_simcom_common_tls_basic_stop(ewf_adapter* adapter_ptr);
++
++ewf_result ewf_adapter_simcom_common_tls_basic_urc_callback(ewf_interface* interface_ptr, uint8_t* buffer_ptr, uint32_t buffer_length);
++
++ewf_result ewf_adapter_simcom_common_tls_basic_init(ewf_adapter* adapter_ptr);
++ewf_result ewf_adapter_simcom_common_tls_basic_clean(ewf_adapter* adapter_ptr);
++
++#endif /* EWF_ADAPTER_SIMCOM_COMMON_TLS_BASIC_ENABLED */
++
++/** @} *** group_adapter_simcom_common_tls_basic */
++
++/**
++ * @defgroup group_adapter_simcom_common_mqtt_basic MQTT basic API implementation
++ * @brief Simcom common adapter MQTT basic API
++ * @{
++ */
++
++#if EWF_ADAPTER_SIMCOM_COMMON_MQTT_BASIC_ENABLED
++
++extern ewf_adapter_api_mqtt_basic ewf_adapter_simcom_common_api_mqtt_basic;
++
++ewf_result ewf_adapter_simcom_common_mqtt_basic_start(ewf_adapter* adapter_ptr);
++ewf_result ewf_adapter_simcom_common_mqtt_basic_stop(ewf_adapter* adapter_ptr);
++
++ewf_result ewf_adapter_simcom_common_mqtt_basic_urc_callback(ewf_interface* interface_ptr, uint8_t* buffer_ptr, uint32_t buffer_length);
++
++ewf_result ewf_adapter_simcom_common_mqtt_basic_default_state_callback(ewf_adapter* adapter_ptr, const char* state_cstr, const char* param_cstr);
++ewf_result ewf_adapter_simcom_common_mqtt_basic_default_message_callback(ewf_adapter* adapter_ptr, const char* topic_cstr, const char* payload_cstr);
++
++ewf_result ewf_adapter_simcom_common_mqtt_basic_connect(ewf_adapter* adapter_ptr, char const* server_str, uint32_t port, char const* clientid, char const* username, char const* password);
++ewf_result ewf_adapter_simcom_common_mqtt_basic_disconnect(ewf_adapter* adapter_ptr);
++ewf_result ewf_adapter_simcom_common_mqtt_basic_subscribe(ewf_adapter* adapter_ptr, char const* topic);
++ewf_result ewf_adapter_simcom_common_mqtt_basic_unsubscribe(ewf_adapter* adapter_ptr, char const* topic);
++ewf_result ewf_adapter_simcom_common_mqtt_basic_publish(ewf_adapter* adapter_ptr, const char* topic, const char* msg_cstr);
++
++#endif /* EWF_ADAPTER_SIMCOM_COMMON_MQTT_BASIC_ENABLED */
++
++/** @} *** group_adapter_simcom_common_mqtt_basic */
++
++/************************************************************************//**
++ * @} *** group_adapter_simcom_common_functions
++ ****************************************************************************/
+ 
+ /************************************************************************//**
+  * @} *** group_adapter_simcom_common
+diff --git a/src/ewf_adapter_simcom_common_control.c b/src/ewf_adapter_simcom_common_control.c
+index 7452f17..a4e22e6 100644
+--- a/src/ewf_adapter_simcom_common_control.c
++++ b/src/ewf_adapter_simcom_common_control.c
+@@ -116,7 +116,6 @@ ewf_result ewf_adapter_simcom_common_start(ewf_adapter* adapter_ptr)
+         EWF_LOG_ERROR("Failed to set the interface URC tokenizer pattern: ewf_result %d.\n", result);
+         return EWF_RESULT_INTERFACE_INITIALIZATION_FAILED;
+     }
+-
+     /* Start the interface */
+     if (ewf_result_failed(result = ewf_interface_start(interface_ptr)))
+     {
+@@ -124,28 +123,43 @@ ewf_result ewf_adapter_simcom_common_start(ewf_adapter* adapter_ptr)
+         return EWF_RESULT_INTERFACE_INITIALIZATION_FAILED;
+     }
+ 
++extern void todo_sleep(uint32_t ms);    
++    todo_sleep(4000);
+     /* AT - wake the modem */
+-    if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT\r"))) return result;
+-    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) return result;
+-    if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT\r"))) return result;
+-    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) return result;
+-    if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT\r"))) return result;
+-    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) return result;
++    while(1) {
++        result = ewf_interface_send_command(interface_ptr, "AT\r");
++        result = ewf_interface_verify_response(interface_ptr, "\r\nOK\r\n");
++        if (result == EWF_RESULT_OK)
++            break;
++        asm("bkpt");
++    }
++    if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT\r"))) asm("bkpt"); //return result;
++    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr)))  asm("bkpt"); //return result;
++    if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT\r")))  asm("bkpt"); //return result;
++    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr)))  asm("bkpt"); //return result;
++    if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT\r")))  asm("bkpt"); //return result;
++    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr)))  asm("bkpt"); //return result;
+ 
+     /* Disable local echo */
+-    if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "ATE0\r"))) return result;
+-    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) return result;
++    if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "ATE0\r")))  asm("bkpt"); //return result;
++    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr)))  asm("bkpt"); //return result;
+ 
+     /* Check that the modem is responding */
+-    if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT\r"))) return result;
+-    if (ewf_result_failed(result = ewf_interface_verify_response(interface_ptr, "\r\nOK\r\n"))) return result;
++    if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT\r")))  asm("bkpt"); //return result;
++    if (ewf_result_failed(result = ewf_interface_verify_response(interface_ptr, "\r\nOK\r\n")))  asm("bkpt"); //return result;
+ 
+     /* Set the error Message Format */
+-    if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT+CMEE=1\r"))) return result;
+-    if (ewf_result_failed(result = ewf_interface_verify_response(interface_ptr, "\r\nOK\r\n"))) return result;
++    if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT+CMEE=1\r")))  asm("bkpt"); //return result;
++    if (ewf_result_failed(result = ewf_interface_verify_response(interface_ptr, "\r\nOK\r\n")))  asm("bkpt"); //return result;
+ 
+     /* Start the APIs */
+-
++#if EWF_ADAPTER_SIMCOM_COMMON_UFS_ENABLED
++    if (ewf_result_failed(result = ewf_adapter_simcom_common_ufs_start(adapter_ptr)))
++    {
++        EWF_LOG_ERROR("Failed to start the UFS API: ewf_result %d.\n", result);
++        return EWF_RESULT_INTERFACE_INITIALIZATION_FAILED;
++    }
++#endif
+ #if EWF_ADAPTER_SIMCOM_COMMON_TCP_ENABLED || EWF_ADAPTER_SIMCOM_COMMON_UDP_ENABLED
+     if (ewf_result_failed(result = ewf_adapter_simcom_common_internet_start(adapter_ptr)))
+     {
+@@ -153,7 +167,6 @@ ewf_result ewf_adapter_simcom_common_start(ewf_adapter* adapter_ptr)
+         return EWF_RESULT_INTERFACE_INITIALIZATION_FAILED;
+     }
+ #endif
+-
+ #if EWF_ADAPTER_SIMCOM_COMMON_MQTT_ENABLED
+     if (ewf_result_failed(result = ewf_adapter_simcom_common_mqtt_start(adapter_ptr)))
+     {
+@@ -161,7 +174,6 @@ ewf_result ewf_adapter_simcom_common_start(ewf_adapter* adapter_ptr)
+         return EWF_RESULT_INTERFACE_INITIALIZATION_FAILED;
+     }
+ #endif
+-
+ #if EWF_ADAPTER_SIMCOM_COMMON_TLS_BASIC_ENABLED
+     if (ewf_result_failed(result = ewf_adapter_simcom_common_tls_basic_start(adapter_ptr)))
+     {
+@@ -169,7 +181,6 @@ ewf_result ewf_adapter_simcom_common_start(ewf_adapter* adapter_ptr)
+         return EWF_RESULT_INTERFACE_INITIALIZATION_FAILED;
+     }
+ #endif
+-
+ #if EWF_ADAPTER_SIMCOM_COMMON_MQTT_BASIC_ENABLED
+     if (ewf_result_failed(result = ewf_adapter_simcom_common_mqtt_basic_start(adapter_ptr)))
+     {
+@@ -177,7 +188,6 @@ ewf_result ewf_adapter_simcom_common_start(ewf_adapter* adapter_ptr)
+         return EWF_RESULT_INTERFACE_INITIALIZATION_FAILED;
+     }
+ #endif
+-
+     /* All ok! */
+     return EWF_RESULT_OK;
+ }
+diff --git a/src/ewf_adapter_simcom_common_info.c b/src/ewf_adapter_simcom_common_info.c
+index 5d41763..ef0d864 100644
+--- a/src/ewf_adapter_simcom_common_info.c
++++ b/src/ewf_adapter_simcom_common_info.c
+@@ -34,63 +34,63 @@ ewf_result ewf_adapter_simcom_common_info(ewf_adapter* adapter_ptr)
+     EWF_INTERFACE_VALIDATE_POINTER(interface_ptr);
+ 
+     ewf_result result;
+-    uint8_t * response_ptr;
+-    uint32_t response_length;
++    //uint8_t * response_ptr;
++    //uint32_t response_length;
+ 
+     EWF_LOG("[ADAPTER INFORMATION START]\n");
+ 
+     /* Display Product Identification Information */
+     if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "ATI\r"))) return result;
+-    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) return result;
+-
++    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) asm("bkpt"); //return result;
++    //asm("bkpt");
+     /* Request International Mobile Subscriber Identity (IMSI) */
+     if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT+CIMI\r"))) return result;
+-    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) return result;
+-
++    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) asm("bkpt"); //return result;
++    //asm("bkpt");
+     /* Check sim card is present and active */
+     if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT+CPIN?\r"))) return result;
+-    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) return result;
+-
++    if (ewf_result_failed(result = ewf_interface_verify_response(interface_ptr, "\r\n+CPIN: READY\r\n\r\nOK\r\n"))) asm("bkpt"); //return result;
++    asm("bkpt");
+     /* Check module name */
+     if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT+CGMM\r"))) return result;
+-    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) return result;
+-
++    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) asm("bkpt"); //return result;
++    //asm("bkpt");
+     /* Firmware version */
+     if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT+CGMR\r"))) return result;
+-    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) return result;
+-
++    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) asm("bkpt"); //return result;
++    asm("bkpt");
+     /* Get IMEI number */
+     if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT+GSN\r"))) return result;
+-    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) return result;
+-
++    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) asm("bkpt"); //return result;
++    //asm("bkpt");
+     /* Get system time */
+     if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT+CCLK?\r"))) return result;
+-    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) return result;
+-
++    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) asm("bkpt"); //return result;
++    //asm("bkpt");
+     /* Check operator info */
+     if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT+COPS?\r"))) return result;
+-    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) return result;
+-
++    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) asm("bkpt"); //return result;
++    asm("bkpt");
+     /* Get signal strength */
+     if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT+CSQ\r"))) return result;
+-    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) return result;
+-
++    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) asm("bkpt"); //return result;
++    asm("bkpt");
+     /* Get network registration status */
+     if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT+CGREG?\r"))) return result;
+-    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) return result;
+-
++    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) asm("bkpt"); //return result;
++    asm("bkpt");
+     /* Attachment or Detachment of PS */
+     if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT+CGATT?\r"))) return result;
+-    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) return result;
+-
++    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) asm("bkpt"); //return result;
++    asm("bkpt");
+     /* Show PDP address */
+     if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT+CGPADDR\r"))) return result;
+-    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) return result;
+-
++    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) asm("bkpt"); //return result;
++    asm("bkpt");
+     /* Get APN and IP address */
+     if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT+CGCONTRDP\r"))) return result;
+-    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) return result;
+-
++    if (ewf_result_failed(result = ewf_interface_drop_response(interface_ptr))) asm("bkpt"); //return result;
++    asm("bkpt");
+     EWF_LOG("[ADAPTER INFORMATION END]\n");
+ 
+     /* All ok! */
+@@ -113,31 +113,32 @@ ewf_result ewf_adapter_simcom_common_get_ipv4_address(ewf_adapter* adapter_ptr,
+         return EWF_RESULT_INVALID_FUNCTION_ARGUMENT;
+     }
+ 
+-    if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT+QIACT?\r"))) return result;
++    if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT+SAPBR=2,1\r"))) asm("bkpt"); //return result;
+     if (ewf_result_failed(result = ewf_interface_receive_response(interface_ptr, &response_ptr, &response_length, 1 * EWF_PLATFORM_TICKS_PER_SECOND))) return result;
+ 
+     if (response_ptr)
+     {
+-        int context_id;
+-        int context_state;
+-        int context_type;
++        int cid;
++        int status;
+         int address_a;
+         int address_b;
+         int address_c;
+         int address_d;
+-        int fields = sscanf((char *) response_ptr, "\r\n+QIACT: %d,%d,%d,\"%d.%d.%d.%d\"", &context_id, &context_state, &context_type, &address_a, &address_b, &address_c, &address_d);
++        int fields = sscanf((char *) response_ptr, "\r\n+SAPBR: %d,%d,\"%d.%d.%d.%d\"", &cid, &status, &address_a, &address_b, &address_c, &address_d);
+         ewf_interface_release(interface_ptr, response_ptr);
+-        if (fields !=7)
++        if (fields !=6)
+         {
+             EWF_LOG_ERROR("Unexpected response format.\n");
++            asm("bkpt");
+             return EWF_RESULT_UNEXPECTED_RESPONSE;
+         }
+-
+-        *address_ptr =
+-            ((address_a & 0xFF) << 24) |
+-            ((address_b & 0xFF) << 16) |
+-            ((address_c & 0xFF) << 8) |
+-            (address_d & 0xFF);
++        if (status == 1) {
++            *address_ptr =
++                ((address_a & 0xFF) << 24) |
++                ((address_b & 0xFF) << 16) |
++                ((address_c & 0xFF) << 8) |
++                (address_d & 0xFF);
++        }
+     }
+ 
+     return EWF_RESULT_OK;
+@@ -191,13 +192,11 @@ ewf_result ewf_adapter_simcom_common_get_ipv4_dns(ewf_adapter* adapter_ptr, uint
+         return EWF_RESULT_INVALID_FUNCTION_ARGUMENT;
+     }
+ 
+-    if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT+QIDNSCFG=1\r"))) return result;
+-    if (ewf_result_failed(result = ewf_interface_receive_response(interface_ptr, &response_ptr, &response_length, 1 * EWF_PLATFORM_TICKS_PER_SECOND))) return result;
++    if (ewf_result_failed(result = ewf_interface_send_command(interface_ptr, "AT+CDNSCFG?\r"))) asm("bkpt"); //return result;
++    if (ewf_result_failed(result = ewf_interface_receive_response(interface_ptr, &response_ptr, &response_length, 1 * EWF_PLATFORM_TICKS_PER_SECOND))) asm("bkpt"); //return result;
+ 
+     if (response_ptr)
+     {
+-        int context_id;
+-
+         int dns1_a;
+         int dns1_b;
+         int dns1_c;
+@@ -210,12 +209,12 @@ ewf_result ewf_adapter_simcom_common_get_ipv4_dns(ewf_adapter* adapter_ptr, uint
+ 
+         int fields = sscanf(
+             (char *) response_ptr,
+-            "\r\n+QIDNSCFG: %d,\"%d.%d.%d.%d\",\"%d.%d.%d.%d\"",
+-            &context_id,
++            "\r\nPrimaryDns: %d.%d.%d.%d\r\nSecondaryDns: %d.%d.%d.%d\r\nOK\r\n",
+             &dns1_a, &dns1_b, &dns1_c, &dns1_d,
+             &dns2_a, &dns2_b, &dns2_c, &dns2_d);
+-        if (fields !=9)
++        if (fields != 8)
+         {
++            asm("bkpt");
+             EWF_LOG_ERROR("Unexpected response format.\n");
+             return EWF_RESULT_UNEXPECTED_RESPONSE;
+         }
+diff --git a/src/ewf_adapter_simcom_sim868.h b/src/ewf_adapter_simcom_sim868.h
+index f3b30f0..5f24c0e 100644
+--- a/src/ewf_adapter_simcom_sim868.h
++++ b/src/ewf_adapter_simcom_sim868.h
+@@ -24,43 +24,106 @@ extern "C" {
+  * @brief SIMCom SIM868 adapter configuration
+  * @{
+  ****************************************************************************/
++#ifndef EWF_ADAPTER_SIMCOM_SIM868_UFS_ENABLED
++#define EWF_ADAPTER_SIMCOM_SIM868_UFS_ENABLED (1)
++#define EWF_ADAPTER_SIMCOM_COMMON_ENABLED (1)
++#endif
+  
+ #define EWF_ADAPTER_SIMCOM_SIM868_TLS_BASIC_ENABLED (0)
+-#define EWF_ADAPTER_SIMCOM_SIM868_TCP_ENABLED (0)
++#define EWF_ADAPTER_SIMCOM_SIM868_TCP_ENABLED (1)
+ #define EWF_ADAPTER_SIMCOM_SIM868_UDP_ENABLED (0)
+-#define EWF_ADAPTER_SIMCOM_SIM868_MQTT_BASIC_ENABLED (0)
++#define EWF_ADAPTER_SIMCOM_SIM868_MQTT_BASIC_ENABLED (1)
+ 
+ #if !defined(EWF_ADAPTER_SIMCOM_SIM868_TLS_ENABLED) && !defined(EWF_ADAPTER_SIMCOM_SIM868_TLS_BASIC_ENABLED)
+ #if 1
+ #define EWF_ADAPTER_SIMCOM_SIM868_TLS_BASIC_ENABLED (1)
++#define EWF_ADAPTER_SIMCOM_COMMON_TLS_BASIC_ENABLED (1)
+ #define EWF_ADAPTER_SIMCOM_SIM868_TLS_ENABLED (0)
++#define EWF_ADAPTER_SIMCOM_COMMON_TLS_ENABLED (0)
+ #else
+ #define EWF_ADAPTER_SIMCOM_SIM868_TLS_BASIC_ENABLED (0)
++#define EWF_ADAPTER_SIMCOM_COMMON_TLS_BASIC_ENABLED (0)
+ #define EWF_ADAPTER_SIMCOM_SIM868_TLS_ENABLED (1)
++#define EWF_ADAPTER_SIMCOM_COMMON_TLS_ENABLED (1)
+ #endif
+ #endif
+ 
+ #ifndef EWF_ADAPTER_SIMCOM_SIM868_TCP_ENABLED
+ #define EWF_ADAPTER_SIMCOM_SIM868_TCP_ENABLED (1)
++#define EWF_ADAPTER_SIMCOM_COMMON_TCP_ENABLED (1)
+ #endif
+ 
+ #ifndef EWF_ADAPTER_SIMCOM_SIM868_UDP_ENABLED
+ #define EWF_ADAPTER_SIMCOM_SIM868_UDP_ENABLED (1)
++#define EWF_ADAPTER_SIMCOM_COMMON_UDP_ENABLED (1)
+ #endif
+ 
+ #if !defined(EWF_ADAPTER_SIMCOM_SIM868_MQTT_ENABLED) && !defined(EWF_ADAPTER_SIMCOM_SIM868_MQTT_BASIC_ENABLED)
+ #if 1
+ #define EWF_ADAPTER_SIMCOM_SIM868_MQTT_BASIC_ENABLED (1)
++#define EWF_ADAPTER_SIMCOM_COMMON_MQTT_BASIC_ENABLED (1)
+ #define EWF_ADAPTER_SIMCOM_SIM868_MQTT_ENABLED (0)
++#define EWF_ADAPTER_SIMCOM_COMMON_MQTT_ENABLED (0)
+ #else
+ #define EWF_ADAPTER_SIMCOM_SIM868_MQTT_BASIC_ENABLED (0)
++#define EWF_ADAPTER_SIMCOM_COMMON_MQTT_BASIC_ENABLED (0)
+ #define EWF_ADAPTER_SIMCOM_SIM868_MQTT_ENABLED (1)
++#define EWF_ADAPTER_SIMCOM_COMMON_MQTT_ENABLED (1)
+ #endif
+ #endif
+ 
+-/************************************************************************//**
+- * @} *** group_configuration_adapter_quectel_bg96
+- ****************************************************************************/
++ /** @brief Trusted Certificate Authority certificate file name to be stored on the modem */
++#ifdef EWF_CONFIG_ADAPTER_SIMCOM_SIM868_ROOT_CA_CERTIFICATE_FILE_NAME
++#define EWF_CONFIG_ADAPTER_SIMCOM_COMMON_ROOT_CA_CERTIFICATE_FILE_NAME      EWF_CONFIG_ADAPTER_SIMCOM_SIM868_ROOT_CA_CERTIFICATE_FILE_NAME
++#endif 
++
++/** @brief User Certificate Authority certificate file name to be stored on the modem */
++#ifdef EWF_CONFIG_ADAPTER_SIMCOM_SIM868_USER_CA_CERTIFICATE_FILE_NAME
++#define EWF_CONFIG_ADAPTER_SIMCOM_COMMON_USER_CA_CERTIFICATE_FILE_NAME      EWF_CONFIG_ADAPTER_SIMCOM_SIM868_USER_CA_CERTIFICATE_FILE_NAME
++#endif 
++
++/**
++ * @brief CA certificate index that will be used in the security/TLS profile configuration
++ * This number will either be EWF_CONFIG_ADAPTER_SIMCOM_SIM868_ROOT_CA_CERTIFICATE_FILE_NAME or
++ * EWF_CONFIG_ADAPTER_SIMCOM_SIM868_USER_CA_CERTIFICATE_FILE_NAME
++ */
++#ifdef EWF_CONFIG_ADAPTER_SIMCOM_SIM868_CERTIFICATE_CA_FILE_NAME
++#define EWF_CONFIG_ADAPTER_SIMCOM_COMMON_CA_CERTIFICATE_FILE_NAME           EWF_CONFIG_ADAPTER_SIMCOM_SIM868_CA_CERTIFICATE_FILE_NAME
++#endif
++
++ /** @brief Client certificate file name to be stored on the modem */
++#ifdef EWF_CONFIG_ADAPTER_SIMCOM_SIM868_CLIENT_CERTIFICATE_FILE_NAME
++#define EWF_CONFIG_ADAPTER_SIMCOM_COMMON_CLIENT_CERTIFICATE_FILE_NAME       EWF_CONFIG_ADAPTER_SIMCOM_SIM868_CLIENT_CERTIFICATE_FILE_NAME
++#endif 
++
++/** @brief Client private key filename  */
++#ifdef EWF_CONFIG_ADAPTER_SIMCOM_SIM868_CLIENT_PRIVATE_KEY_FILE_NAME
++#define EWF_CONFIG_ADAPTER_SIMCOM_COMMON_CLIENT_PRIVATE_KEY_FILE_NAME       EWF_CONFIG_ADAPTER_SIMCOM_SIM868_CLIENT_PRIVATE_KEY_FILE_NAME
++#endif 
++
++/** @brief Trusted Certificate Authority certificate buffer name*/
++#ifdef EWF_CONFIG_ADAPTER_SIMCOM_SIM868_ROOT_CA_CERTIFICATE_BUFFER_NAME
++#undef EWF_CONFIG_ADAPTER_SIMCOM_COMMON_ROOT_CA_CERTIFICATE_BUFFER_NAME
++#define EWF_CONFIG_ADAPTER_SIMCOM_COMMON_ROOT_CA_CERTIFICATE_BUFFER_NAME    EWF_CONFIG_ADAPTER_SIMCOM_SIM868_ROOT_CA_CERTIFICATE_BUFFER_NAME
++#endif 
++
++/** @brief User Certificate Authority certificate buffer name */
++#ifdef EWF_CONFIG_ADAPTER_SIMCOM_SIM868_USER_CA_CERTIFICATE_BUFFER_NAME
++#undef EWF_CONFIG_ADAPTER_SIMCOM_COMMON_USER_CA_CERTIFICATE_BUFFER_NAME
++#define EWF_CONFIG_ADAPTER_SIMCOM_COMMON_USER_CA_CERTIFICATE_BUFFER_NAME    EWF_CONFIG_ADAPTER_SIMCOM_SIM868_USER_CA_CERTIFICATE_BUFFER_NAME
++#endif 
++
++/** @brief Client certificate pointing buffer name */
++#ifdef EWF_CONFIG_ADAPTER_SIMCOM_SIM868_CLIENT_CERTIFICATE_BUFFER_NAME
++#undef EWF_CONFIG_ADAPTER_SIMCOM_COMMON_CLIENT_CERTIFICATE_BUFFER_NAME
++#define EWF_CONFIG_ADAPTER_SIMCOM_COMMON_CLIENT_CERTIFICATE_BUFFER_NAME     EWF_CONFIG_ADAPTER_SIMCOM_SIM868_CLIENT_CERTIFICATE_BUFFER_NAME
++#endif 
++
++/** @brief Client private key buffer name  */
++#ifdef EWF_CONFIG_ADAPTER_SIMCOM_SIM868_CLIENT_PRIVATE_KEY_BUFFER_NAME
++#undef EWF_CONFIG_ADAPTER_SIMCOM_COMMON_CLIENT_PRIVATE_KEY_BUFFER_NAME
++#define EWF_CONFIG_ADAPTER_SIMCOM_COMMON_CLIENT_PRIVATE_KEY_BUFFER_NAME     EWF_CONFIG_ADAPTER_SIMCOM_SIM868_CLIENT_PRIVATE_KEY_BUFFER_NAME
++#endif 
+ 
+ /* Include the SIMCom common header here, to take the above configuration macros into account */
+ #include "ewf_adapter_simcom_common.h"
+@@ -108,6 +171,38 @@ ewf_result ewf_adapter_simcom_sim868_urc_callback(ewf_interface* interface_ptr,
+ #define ewf_adapter_simcom_sim868_get_ipv4_dns             ewf_adapter_simcom_common_get_ipv4_dns
+ 
+ /** @} *** group_adapter_simcom_sim868_info */
++/**
++ * @defgroup group_adapter_simcom_sim868_ufs User File System (UFS) API
++ * @brief Functions to use the modem's User File System (UFS)
++ * @{
++ */
++
++#if EWF_ADAPTER_SIMCOM_SIM868_UFS_ENABLED
++
++#define ewf_adapter_simcom_sim868_ufs_start                  ewf_adapter_simcom_common_ufs_start
++#define ewf_adapter_simcom_sim868_ufs_stop                   ewf_adapter_simcom_common_ufs_stop
++
++#define ewf_adapter_simcom_sim868_ufs_urc_callback           ewf_adapter_simcom_common_ufs_urc_callback
++
++#define ewf_adapter_simcom_sim868_ufs_list                   ewf_adapter_simcom_common_ufs_list
++#define ewf_adapter_simcom_sim868_ufs_delete                 ewf_adapter_simcom_common_ufs_delete
++#define ewf_adapter_simcom_sim868_ufs_upload                 ewf_adapter_simcom_common_ufs_upload
++
++#endif /* EWF_ADAPTER_SIMCOM_SIM868_UFS_ENABLED */
++
++/** @} *** group_adapter_simcom_sim868_ufs */
++
++#if EWF_ADAPTER_SIMCOM_SIM868_TLS_BASIC_ENABLED
++#define ewf_adapter_simcom_sim868_tls_basic_start            ewf_adapter_simcom_common_tls_basic_start
++#define ewf_adapter_simcom_sim868_tls_basic_stop             ewf_adapter_simcom_common_tls_basic_stop
++
++#define ewf_adapter_simcom_sim868_tls_basic_urc_callback     ewf_adapter_simcom_common_tls_basic_urc_callback
++
++#define ewf_adapter_simcom_sim868_tls_basic_init             ewf_adapter_simcom_common_tls_basic_init
++#define ewf_adapter_simcom_sim868_tls_basic_clean            ewf_adapter_simcom_common_tls_basic_clean
++
++#endif /* EWF_ADAPTER_SIMCOM_SIM868_TLS_BASIC_ENABLED */
++
+ 
+ 
+ /******************************************************************************
